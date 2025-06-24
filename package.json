@@ -1,0 +1,48 @@
+{
+  "name": "replicate-minimax-image-01-mcp-server",
+  "version": "2.0.0",
+  "description": "MCP server for minimax/image-01 - Advanced image generation model with high-quality output via Replicate API",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": "./build/index.js",
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "test": "node test-server.js",
+    "get-path": "node get-path.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PierrunoYT/replicate-minimax-image-01-mcp-server.git"
+  },
+  "homepage": "https://github.com/PierrunoYT/replicate-minimax-image-01-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/PierrunoYT/replicate-minimax-image-01-mcp-server/issues"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "replicate",
+    "minimax",
+    "image-01",
+    "image-generation",
+    "ai",
+    "typescript",
+    "model-context-protocol"
+  ],
+  "author": "PierrunoYT",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "replicate": "^0.34.1",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

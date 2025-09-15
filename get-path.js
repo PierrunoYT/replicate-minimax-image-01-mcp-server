@@ -25,3 +25,4 @@ console.log(JSON.stringify({
     }
   }
 }, null, 2));
+console.log('\nNOTE: This server now uses the new file-based API for minimax/image-01');

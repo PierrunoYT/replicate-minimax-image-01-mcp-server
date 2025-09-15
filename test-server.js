@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-console.log('Testing Replicate Minimax Image-01 MCP Server...\n');
+console.log('Testing Replicate Minimax Image-01 MCP Server (New File-based API)...\n');
 
 // Check if build directory exists
 const buildPath = path.join(__dirname, 'build', 'index.js');
@@ -116,3 +116,4 @@ console.log(JSON.stringify({
     }
   }
 }, null, 2));
+console.log('\nNOTE: This server now uses the new file-based API for minimax/image-01');

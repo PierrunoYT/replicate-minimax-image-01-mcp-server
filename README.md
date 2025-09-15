@@ -1,16 +1,16 @@
 # Replicate Minimax Image-01 MCP Server
 
-A Model Context Protocol (MCP) server that provides access to the minimax/image-01 image generation model via Replicate. This server allows you to generate high-quality images using advanced AI technology through the Replicate platform.
+A Model Context Protocol (MCP) server that provides access to the minimax/image-01 image generation model via Replicate. This server allows you to generate high-quality images using advanced AI technology through the Replicate platform with the new file-based API.
 
 ## Features
 
 - **High-Quality Image Generation**: Generate stunning images using the minimax/image-01 model
 - **Multiple Generation Methods**: Support for synchronous and asynchronous generation with prediction tracking
-- **Flexible Aspect Ratios**: Support for 8 different aspect ratios including square, landscape, and portrait
+- **Flexible Aspect Ratios**: Support for 8 different aspect ratios including square, landscape, portrait, and ultrawide
 - **Multiple Image Generation**: Generate 1-9 images per request
 - **Prompt Optimization**: Built-in prompt optimization for better results
-- **Subject Reference Support**: Optional subject reference for consistent character generation
-- **Local Image Download**: Automatically downloads generated images to local storage in WebP format
+- **Subject Reference Support**: Optional character reference image (human face) for consistent character generation
+- **Local Image Download**: Automatically downloads generated images to local storage in JPEG format
 - **Prediction Management**: Create, track, and cancel predictions
 - **Webhook Support**: Optional webhook notifications for completed requests
 
@@ -104,10 +104,10 @@ Generate images using the standard synchronous method.
 **Parameters:**
 - `prompt` (required): Text prompt for image generation
 - `aspect_ratio` (optional): Aspect ratio of the generated image (default: "1:1")
-  - Options: "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:2"
+  - Options: "1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"
 - `number_of_images` (optional): Number of images to generate, 1-9 (default: 1)
 - `prompt_optimizer` (optional): Whether to optimize the prompt for better results (default: true)
-- `subject_reference` (optional): URI string for subject reference
+- `subject_reference` (optional): URI string for character reference image (human face)
 
 **Example:**
 ```json
@@ -149,12 +149,12 @@ The minimax/image-01 model supports the following aspect ratios:
 
 - `1:1` - Square (default)
 - `16:9` - Widescreen landscape
-- `9:16` - Vertical/portrait
 - `4:3` - Standard landscape
-- `3:4` - Standard portrait
 - `3:2` - Classic photo landscape
 - `2:3` - Classic photo portrait
-- `1:2` - Tall portrait
+- `3:4` - Standard portrait
+- `9:16` - Vertical/portrait
+- `21:9` - Ultrawide landscape
 
 ## Multiple Image Generation
 
@@ -166,11 +166,11 @@ The model includes built-in prompt optimization that can enhance your prompts fo
 
 ## Subject Reference
 
-For consistent character generation across multiple images, you can provide a `subject_reference` URI that the model will use as a reference for maintaining character consistency.
+For consistent character generation across multiple images, you can provide a `subject_reference` URI pointing to a character reference image (human face) that the model will use as a reference for maintaining character consistency.
 
 ## Output
 
-Generated images are automatically downloaded to a local `images/` directory with descriptive filenames in WebP format. The response includes:
+Generated images are automatically downloaded to a local `images/` directory with descriptive filenames in JPEG format. The response includes:
 
 - Local file paths
 - Original URLs
@@ -236,12 +236,14 @@ For issues and questions:
 ### v2.0.0
 - **BREAKING CHANGE**: Complete migration from recraft-ai/recraft-v3 to minimax/image-01
 - Updated all tool names from `recraft_v3_*` to `minimax_image_01_*`
+- **NEW**: Updated to use the new file-based API structure for better performance
 - New parameter schema supporting minimax/image-01 features:
-  - 8 aspect ratio options (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 1:2)
+  - 8 aspect ratio options (1:1, 16:9, 4:3, 3:2, 2:3, 3:4, 9:16, 21:9)
   - Multiple image generation (1-9 images per request)
   - Built-in prompt optimization
-  - Subject reference support for character consistency
+  - Character reference image support for consistent character generation
 - Updated filename generation with minimax_image_01 prefix
+- Images now saved in JPEG format instead of WebP
 - Comprehensive documentation updates
 - Maintained all existing architectural patterns and error handling
 

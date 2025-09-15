@@ -1,88 +1,37 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
-import Replicate from "replicate";
 import { writeFile } from "fs/promises";
+import Replicate from "replicate";
 import * as fs from 'fs';
 import * as path from 'path';
-import * as https from 'https';
-import * as http from 'http';
+
+// Initialize Replicate client
+const replicate = new Replicate();
 
 // Check for required environment variable
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
-let replicateConfigured = false;
-let replicate: Replicate;
-
 if (!REPLICATE_API_TOKEN) {
   console.error('REPLICATE_API_TOKEN environment variable is required');
   console.error('Please set your Replicate API token: export REPLICATE_API_TOKEN=r8_your_token_here');
-  // Server continues running, no process.exit()
-} else {
-  // Configure Replicate client
-  replicate = new Replicate({
-    auth: REPLICATE_API_TOKEN,
-  });
-  replicateConfigured = true;
+  process.exit(1);
 }
 
-// Define types based on minimax/image-01 API documentation
-interface MinimaxImageResult {
-  url?: string;
-  urls?: string[];
+// Define types for the new minimax/image-01 API
+interface MinimaxImageFile {
+  url(): string;
+  [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array>;
 }
 
 interface MinimaxImageInput {
   prompt: string;
-  aspect_ratio?: string;
+  aspect_ratio?: "1:1" | "16:9" | "4:3" | "3:2" | "2:3" | "3:4" | "9:16" | "21:9";
   number_of_images?: number;
   prompt_optimizer?: boolean;
   subject_reference?: string;
 }
 
-// Download image function
-async function downloadImage(url: string, filename: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    try {
-      const parsedUrl = new URL(url);
-      const client = parsedUrl.protocol === 'https:' ? https : http;
-      
-      // Create images directory if it doesn't exist
-      const imagesDir = path.join(process.cwd(), 'images');
-      if (!fs.existsSync(imagesDir)) {
-        fs.mkdirSync(imagesDir, { recursive: true });
-      }
-      
-      const filePath = path.join(imagesDir, filename);
-      const file = fs.createWriteStream(filePath);
-      
-      client.get(url, (response) => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download image: HTTP ${response.statusCode}`));
-          return;
-        }
-        
-        response.pipe(file);
-        
-        file.on('finish', () => {
-          file.close();
-          resolve(filePath);
-        });
-        
-        file.on('error', (err) => {
-          fs.unlink(filePath, () => {}); // Delete partial file
-          reject(err);
-        });
-      }).on('error', (err) => {
-        reject(err);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
-
-// Generate safe filename for images
+// Utility function to generate safe filenames
 function generateImageFilename(prompt: string, index: number): string {
   const safePrompt = prompt
     .toLowerCase()
@@ -91,65 +40,64 @@ function generateImageFilename(prompt: string, index: number): string {
     .substring(0, 50);
   
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return `minimax_image_01_${safePrompt}_${index}_${timestamp}.webp`;
+  return `minimax_image_01_${safePrompt}_${index}_${timestamp}.jpeg`;
 }
 
-// Create MCP server
+// Utility function to ensure images directory exists
+function ensureImagesDirectory(): string {
+  const imagesDir = path.join(process.cwd(), 'images');
+  if (!fs.existsSync(imagesDir)) {
+    fs.mkdirSync(imagesDir, { recursive: true });
+  }
+  return imagesDir;
+}
+
+// Create MCP server instance
 const server = new McpServer({
   name: "replicate-minimax-image-01-server",
   version: "2.0.0",
 });
 
-// Tool: Generate images with minimax/image-01
+// Tool: Generate images synchronously
 server.tool(
   "minimax_image_01_generate",
   {
-    description: "Generate high-quality images using minimax/image-01 - Advanced image generation model with superior quality and detail via Replicate",
+    description: "Generate high-quality images using minimax/image-01 model via Replicate API",
     inputSchema: {
       type: "object",
       properties: {
         prompt: {
           type: "string",
-          description: "Text prompt for image generation"
+          description: "Text prompt for generation"
         },
         aspect_ratio: {
           type: "string",
-          enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:2"],
-          description: "Aspect ratio of the generated image",
+          enum: ["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
+          description: "Image aspect ratio",
           default: "1:1"
         },
         number_of_images: {
           type: "integer",
           minimum: 1,
           maximum: 9,
-          description: "Number of images to generate (1-9)",
+          description: "Number of images to generate",
           default: 1
         },
         prompt_optimizer: {
           type: "boolean",
-          description: "Whether to optimize the prompt for better results",
+          description: "Use prompt optimizer",
           default: true
         },
         subject_reference: {
           type: "string",
-          description: "Optional URI string for subject reference"
+          format: "uri",
+          description: "An optional character reference image (human face) to use as the subject in the generated image(s)"
         }
       },
       required: ["prompt"]
     }
   },
   async (args: any) => {
-    // Check if Replicate client is configured
-    if (!replicateConfigured) {
-      return {
-        content: [{
-          type: "text",
-          text: "Error: REPLICATE_API_TOKEN environment variable is not set. Please configure your Replicate API token."
-        }],
-        isError: true
-      };
-    }
-
     const {
       prompt,
       aspect_ratio = "1:1",
@@ -157,9 +105,9 @@ server.tool(
       prompt_optimizer = true,
       subject_reference
     } = args;
-    
+
     try {
-      // Prepare input for Replicate API
+      // Prepare input for the API
       const input: MinimaxImageInput = {
         prompt,
         aspect_ratio,
@@ -167,60 +115,54 @@ server.tool(
         prompt_optimizer
       };
 
-      // Add optional subject reference if provided
       if (subject_reference) {
         input.subject_reference = subject_reference;
       }
 
-      console.error(`Generating image with minimax/image-01 - prompt: "${prompt}"`);
+      console.error(`Generating ${number_of_images} image(s) with prompt: "${prompt}"`);
 
-      // Call Replicate minimax/image-01 API
-      const output = await replicate.run("minimax/image-01", { input }) as MinimaxImageResult;
+      // Call the minimax/image-01 model
+      const output = await replicate.run("minimax/image-01", { input }) as MinimaxImageFile[];
 
-      // Handle both single URL and array of URLs
-      const imageUrls: string[] = [];
-      if (output.url) {
-        imageUrls.push(output.url);
-      }
-      if (output.urls && Array.isArray(output.urls)) {
-        imageUrls.push(...output.urls);
+      if (!output || output.length === 0) {
+        throw new Error("No images returned from the API");
       }
 
-      if (imageUrls.length === 0) {
-        throw new Error("No image URLs returned from the API");
-      }
+      // Ensure images directory exists
+      const imagesDir = ensureImagesDirectory();
 
-      // Download images locally
-      console.error("Downloading images locally...");
-      const downloadedImages = [];
+      // Process and save each image
+      const savedImages = [];
+      for (const [index, imageFile] of Object.entries(output)) {
+        const imageIndex = parseInt(index) + 1;
+        const filename = generateImageFilename(prompt, imageIndex);
+        const filePath = path.join(imagesDir, filename);
 
-      for (let i = 0; i < imageUrls.length; i++) {
-        const imageUrl = imageUrls[i];
-        const filename = generateImageFilename(prompt, i + 1);
-        
         try {
-          const localPath = await downloadImage(imageUrl, filename);
-          downloadedImages.push({
-            url: imageUrl,
-            localPath,
-            index: i + 1,
-            filename
+          // Write the file to disk using the new API
+          await writeFile(filePath, imageFile);
+          
+          savedImages.push({
+            index: imageIndex,
+            filename,
+            localPath: filePath,
+            url: imageFile.url()
           });
-          console.error(`Downloaded: ${filename}`);
-        } catch (downloadError) {
-          console.error(`Failed to download image ${i + 1}:`, downloadError);
-          // Still add the image info without local path
-          downloadedImages.push({
-            url: imageUrl,
+
+          console.error(`Saved image ${imageIndex}: ${filename}`);
+        } catch (saveError) {
+          console.error(`Failed to save image ${imageIndex}:`, saveError);
+          savedImages.push({
+            index: imageIndex,
+            filename,
             localPath: null,
-            index: i + 1,
-            filename
+            url: imageFile.url()
           });
         }
       }
 
-      // Format response with download information
-      const imageDetails = downloadedImages.map(img => {
+      // Format response
+      const imageDetails = savedImages.map(img => {
         let details = `Image ${img.index}:`;
         if (img.localPath) {
           details += `\n  Local Path: ${img.localPath}`;
@@ -230,7 +172,7 @@ server.tool(
         return details;
       }).join('\n\n');
 
-      const responseText = `Successfully generated ${downloadedImages.length} image(s) using minimax/image-01:
+      const responseText = `Successfully generated ${savedImages.length} image(s) using minimax/image-01:
 
 Prompt: "${prompt}"
 Aspect Ratio: ${aspect_ratio}
@@ -241,40 +183,34 @@ ${subject_reference ? `Subject Reference: ${subject_reference}` : ''}
 Generated Images:
 ${imageDetails}
 
-${downloadedImages.some(img => img.localPath) ? 'Images have been downloaded to the local \'images\' directory.' : 'Note: Local download failed, but original URLs are available.'}`;
+${savedImages.some(img => img.localPath) ? 'Images have been saved to the local \'images\' directory in JPEG format.' : 'Note: Local save failed, but original URLs are available.'}`;
 
       return {
-        content: [
-          {
-            type: "text",
-            text: responseText
-          }
-        ]
+        content: [{
+          type: "text",
+          text: responseText
+        }]
       };
 
     } catch (error) {
-      console.error('Error generating image:', error);
+      console.error('Error generating images:', error);
       
-      let errorMessage = "Failed to generate image with minimax/image-01.";
-      
-      if (error instanceof Error) {
-        errorMessage += ` Error: ${error.message}`;
-      }
+      const errorMessage = error instanceof Error 
+        ? `Failed to generate images: ${error.message}`
+        : 'Failed to generate images: Unknown error occurred';
 
       return {
-        content: [
-          {
-            type: "text",
-            text: errorMessage
-          }
-        ],
+        content: [{
+          type: "text",
+          text: errorMessage
+        }],
         isError: true
       };
     }
   }
 );
 
-// Tool: Generate images with prediction tracking
+// Tool: Generate images asynchronously with prediction tracking
 server.tool(
   "minimax_image_01_generate_async",
   {
@@ -284,29 +220,30 @@ server.tool(
       properties: {
         prompt: {
           type: "string",
-          description: "Text prompt for image generation"
+          description: "Text prompt for generation"
         },
         aspect_ratio: {
           type: "string",
-          enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:2"],
-          description: "Aspect ratio of the generated image",
+          enum: ["1:1", "16:9", "4:3", "3:2", "2:3", "3:4", "9:16", "21:9"],
+          description: "Image aspect ratio",
           default: "1:1"
         },
         number_of_images: {
           type: "integer",
           minimum: 1,
           maximum: 9,
-          description: "Number of images to generate (1-9)",
+          description: "Number of images to generate",
           default: 1
         },
         prompt_optimizer: {
           type: "boolean",
-          description: "Whether to optimize the prompt for better results",
+          description: "Use prompt optimizer",
           default: true
         },
         subject_reference: {
           type: "string",
-          description: "Optional URI string for subject reference"
+          format: "uri",
+          description: "An optional character reference image (human face) to use as the subject in the generated image(s)"
         },
         webhook: {
           type: "string",
@@ -326,17 +263,6 @@ server.tool(
     }
   },
   async (args: any) => {
-    // Check if Replicate client is configured
-    if (!replicateConfigured) {
-      return {
-        content: [{
-          type: "text",
-          text: "Error: REPLICATE_API_TOKEN environment variable is not set. Please configure your Replicate API token."
-        }],
-        isError: true
-      };
-    }
-
     const {
       prompt,
       aspect_ratio = "1:1",
@@ -346,9 +272,9 @@ server.tool(
       webhook,
       webhook_events_filter = ["completed"]
     } = args;
-    
+
     try {
-      // Prepare input for Replicate API
+      // Prepare input for the API
       const input: MinimaxImageInput = {
         prompt,
         aspect_ratio,
@@ -356,12 +282,11 @@ server.tool(
         prompt_optimizer
       };
 
-      // Add optional subject reference if provided
       if (subject_reference) {
         input.subject_reference = subject_reference;
       }
 
-      console.error(`Creating prediction for minimax/image-01 - prompt: "${prompt}"`);
+      console.error(`Creating async prediction for prompt: "${prompt}"`);
 
       // Create prediction with optional webhook
       const predictionOptions: any = {
@@ -376,7 +301,7 @@ server.tool(
 
       const prediction = await replicate.predictions.create(predictionOptions);
 
-      const responseText = `Prediction created successfully for minimax/image-01:
+      const responseText = `Async prediction created successfully:
 
 Prediction ID: ${prediction.id}
 Status: ${prediction.status}
@@ -388,33 +313,27 @@ Prompt Optimizer: ${prompt_optimizer}
 ${subject_reference ? `Subject Reference: ${subject_reference}` : ''}
 ${webhook ? `Webhook: ${webhook}` : 'No webhook configured'}
 
-Use the prediction ID with the 'minimax_image_01_get_prediction' tool to check status and get results.`;
+Use 'minimax_image_01_get_prediction' with the prediction ID to check status and retrieve results.`;
 
       return {
-        content: [
-          {
-            type: "text",
-            text: responseText
-          }
-        ]
+        content: [{
+          type: "text",
+          text: responseText
+        }]
       };
 
     } catch (error) {
       console.error('Error creating prediction:', error);
       
-      let errorMessage = "Failed to create prediction for minimax/image-01.";
-      
-      if (error instanceof Error) {
-        errorMessage += ` Error: ${error.message}`;
-      }
+      const errorMessage = error instanceof Error 
+        ? `Failed to create prediction: ${error.message}`
+        : 'Failed to create prediction: Unknown error occurred';
 
       return {
-        content: [
-          {
-            type: "text",
-            text: errorMessage
-          }
-        ],
+        content: [{
+          type: "text",
+          text: errorMessage
+        }],
         isError: true
       };
     }
@@ -438,21 +357,10 @@ server.tool(
     }
   },
   async (args: any) => {
-    // Check if Replicate client is configured
-    if (!replicateConfigured) {
-      return {
-        content: [{
-          type: "text",
-          text: "Error: REPLICATE_API_TOKEN environment variable is not set. Please configure your Replicate API token."
-        }],
-        isError: true
-      };
-    }
-
     const { prediction_id } = args;
-    
+
     try {
-      console.error(`Getting prediction status for: ${prediction_id}`);
+      console.error(`Fetching prediction status for: ${prediction_id}`);
 
       const prediction = await replicate.predictions.get(prediction_id);
 
@@ -464,6 +372,7 @@ Created: ${prediction.created_at}
 ${prediction.started_at ? `Started: ${prediction.started_at}` : ''}
 ${prediction.completed_at ? `Completed: ${prediction.completed_at}` : ''}`;
 
+      // Add input parameters if available
       if (prediction.input) {
         const input = prediction.input as MinimaxImageInput;
         responseText += `\n\nInput Parameters:`;
@@ -474,56 +383,56 @@ ${prediction.completed_at ? `Completed: ${prediction.completed_at}` : ''}`;
         if (input.subject_reference) responseText += `\nSubject Reference: ${input.subject_reference}`;
       }
 
+      // Add error information if present
       if (prediction.error) {
         responseText += `\n\nError: ${prediction.error}`;
       }
 
+      // Add logs if available
       if (prediction.logs) {
         responseText += `\n\nLogs:\n${prediction.logs}`;
       }
 
+      // Process output if prediction succeeded
       if (prediction.output && prediction.status === 'succeeded') {
-        const output = prediction.output as MinimaxImageResult;
-        const imageUrls: string[] = [];
-        
-        if (output.url) {
-          imageUrls.push(output.url);
-        }
-        if (output.urls && Array.isArray(output.urls)) {
-          imageUrls.push(...output.urls);
-        }
+        const output = prediction.output as MinimaxImageFile[];
 
-        if (imageUrls.length > 0) {
+        if (output && output.length > 0) {
           responseText += `\n\nGenerated Images:`;
           
-          // Download images locally
-          const downloadedImages = [];
-          for (let i = 0; i < imageUrls.length; i++) {
-            const imageUrl = imageUrls[i];
+          // Ensure images directory exists
+          const imagesDir = ensureImagesDirectory();
+
+          // Save images locally
+          const savedImages = [];
+          for (const [index, imageFile] of Object.entries(output)) {
+            const imageIndex = parseInt(index) + 1;
             const input = prediction.input as MinimaxImageInput;
-            const filename = generateImageFilename(input?.prompt || 'image', i + 1);
+            const filename = generateImageFilename(input?.prompt || 'prediction', imageIndex);
+            const filePath = path.join(imagesDir, filename);
             
             try {
-              const localPath = await downloadImage(imageUrl, filename);
-              downloadedImages.push({
-                url: imageUrl,
-                localPath,
-                index: i + 1,
-                filename
+              await writeFile(filePath, imageFile);
+              savedImages.push({
+                index: imageIndex,
+                filename,
+                localPath: filePath,
+                url: imageFile.url()
               });
-              console.error(`Downloaded: ${filename}`);
-            } catch (downloadError) {
-              console.error(`Failed to download image ${i + 1}:`, downloadError);
-              downloadedImages.push({
-                url: imageUrl,
+              console.error(`Saved prediction image ${imageIndex}: ${filename}`);
+            } catch (saveError) {
+              console.error(`Failed to save prediction image ${imageIndex}:`, saveError);
+              savedImages.push({
+                index: imageIndex,
+                filename,
                 localPath: null,
-                index: i + 1,
-                filename
+                url: imageFile.url()
               });
             }
           }
 
-          downloadedImages.forEach(img => {
+          // Add image details to response
+          savedImages.forEach(img => {
             responseText += `\n\nImage ${img.index}:`;
             if (img.localPath) {
               responseText += `\n  Local Path: ${img.localPath}`;
@@ -532,37 +441,31 @@ ${prediction.completed_at ? `Completed: ${prediction.completed_at}` : ''}`;
             responseText += `\n  Filename: ${img.filename}`;
           });
 
-          if (downloadedImages.some(img => img.localPath)) {
-            responseText += `\n\nImages have been downloaded to the local 'images' directory.`;
+          if (savedImages.some(img => img.localPath)) {
+            responseText += `\n\nImages have been saved to the local 'images' directory in JPEG format.`;
           }
         }
       }
 
       return {
-        content: [
-          {
-            type: "text",
-            text: responseText
-          }
-        ]
+        content: [{
+          type: "text",
+          text: responseText
+        }]
       };
 
     } catch (error) {
-      console.error('Error getting prediction:', error);
+      console.error('Error fetching prediction:', error);
       
-      let errorMessage = "Failed to get prediction status.";
-      
-      if (error instanceof Error) {
-        errorMessage += ` Error: ${error.message}`;
-      }
+      const errorMessage = error instanceof Error 
+        ? `Failed to get prediction status: ${error.message}`
+        : 'Failed to get prediction status: Unknown error occurred';
 
       return {
-        content: [
-          {
-            type: "text",
-            text: errorMessage
-          }
-        ],
+        content: [{
+          type: "text",
+          text: errorMessage
+        }],
         isError: true
       };
     }
@@ -586,19 +489,8 @@ server.tool(
     }
   },
   async (args: any) => {
-    // Check if Replicate client is configured
-    if (!replicateConfigured) {
-      return {
-        content: [{
-          type: "text",
-          text: "Error: REPLICATE_API_TOKEN environment variable is not set. Please configure your Replicate API token."
-        }],
-        isError: true
-      };
-    }
-
     const { prediction_id } = args;
-    
+
     try {
       console.error(`Cancelling prediction: ${prediction_id}`);
 
@@ -615,30 +507,24 @@ ${prediction.completed_at ? `Completed: ${prediction.completed_at}` : ''}
 The prediction has been stopped and will not consume additional resources.`;
 
       return {
-        content: [
-          {
-            type: "text",
-            text: responseText
-          }
-        ]
+        content: [{
+          type: "text",
+          text: responseText
+        }]
       };
 
     } catch (error) {
       console.error('Error cancelling prediction:', error);
       
-      let errorMessage = "Failed to cancel prediction.";
-      
-      if (error instanceof Error) {
-        errorMessage += ` Error: ${error.message}`;
-      }
+      const errorMessage = error instanceof Error 
+        ? `Failed to cancel prediction: ${error.message}`
+        : 'Failed to cancel prediction: Unknown error occurred';
 
       return {
-        content: [
-          {
-            type: "text",
-            text: errorMessage
-          }
-        ],
+        content: [{
+          type: "text",
+          text: errorMessage
+        }],
         isError: true
       };
     }
@@ -656,12 +542,15 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
+// Main function to start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  console.error('Minimax Image-01 MCP Server started successfully');
 }
 
+// Start the server
 main().catch((error) => {
-  console.error('Server error:', error);
+  console.error('Server startup error:', error);
   process.exit(1);
 });

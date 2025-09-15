@@ -1,7 +1,7 @@
 {
   "name": "replicate-minimax-image-01-mcp-server",
   "version": "2.0.0",
-  "description": "MCP server for minimax/image-01 - Advanced image generation model with high-quality output via Replicate API",
+  "description": "MCP server for minimax/image-01 - Advanced image generation model with high-quality output via Replicate API using the new file-based API",
   "type": "module",
   "main": "build/index.js",
   "bin": "./build/index.js",
